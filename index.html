@@ -41,11 +41,15 @@
 
     let layerGroup = L.layerGroup().addTo(map);
 
-    async function loadData() {
-      document.getElementById("status").textContent = "Syncing with Google Sheets...";
-      const res = await fetch(SCRIPT_URL);
-      const data = await res.json();
-      layerGroup.clearLayers();
+    async function simulateDrill(nodeA, timeA, nodeB, timeB) {
+      document.getElementById("status").textContent = "Sending simulated drill timestamps...";
+      const url = `${SCRIPT_URL}?action=alert&nodeA=${nodeA}&timeA=${timeA}&nodeB=${nodeB}&timeB=${timeB}&status=DRILL_DETECTED`;
+      const res = await fetch(url);
+      const out = await res.json();
+      document.getElementById("status").textContent =
+        `Alert logged at KM ${out.km} — push sent to ntfy!`;
+      loadData();
+    }
 
       const lineCoords = data.stations.map(s => [s.lat, s.lng]);
       if (lineCoords.length > 1) {
