@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pipeline 42 — Live Theft & Drill Locator</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    body { margin: 0; font-family: Arial, sans-serif; background: #0f172a; color: #f8fafc; }
+    header { padding: 12px 16px; background: #1e293b; display: flex; justify-content: space-between; align-items: center; }
+    header h1 { font-size: 16px; margin: 0; }
+    #map { height: 62vh; width: 100%; }
+    .panel { padding: 12px 16px; }
+    .btns { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+    button { background: #dc2626; color: #fff; border: none; padding: 10px 14px; border-radius: 6px; font-weight: bold; cursor: pointer; }
+    button.secondary { background: #2563eb; }
+    #status { font-size: 13px; color: #93c5fd; margin-bottom: 8px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Pipeline 42 — Acoustic Drill Locator (±100m)</h1>
+    <button class="secondary" onclick="loadData()">Refresh</button>
+  </header>
+  <div id="map"></div>
+  <div class="panel">
+    <div id="status">Loading stations & alerts...</div>
+    <div class="btns">
+      <button onclick="simulateDrill('KM_020', 1000, 'KM_040', 2500)">Test Drill @ KM 26.25</button>
+      <button onclick="simulateDrill('KM_060', 3200, 'KM_080', 1600)">Test Drill @ KM 74.00</button>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbz41bao2Euol2Ym_KPeBOrWfnFxqiS4V5nXXYC2g8yqFMVK6dCECF1ZuOdO-tOpWXGh/exec";
+    const map = L.map("map").setView([33.65, 44.72], 9);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "© OpenStreetMap"
+    }).addTo(map);
+
+    let layerGroup = L.layerGroup().addTo(map);
+
+    async function loadData() {
+      document.getElementById("status").textContent = "Syncing with Google Sheets...";
+      const res = await fetch(SCRIPT_URL);
+      const data = await res.json();
+      layerGroup.clearLayers();
+
+      const lineCoords = data.stations.map(s => [s.lat, s.lng]);
+      if (lineCoords.length > 1) {
+        L.polyline(lineCoords, { color: "#38bdf8", weight: 4 }).addTo(layerGroup);
+      }
+
+      data.stations.forEach(s => {
+        L.circleMarker([s.lat, s.lng], { radius: 6, color: "#0284c7", fillOpacity: 1 })
+          .bindPopup(`<b>${s.id}</b><br>Marker: ${s.km} km`)
+          .addTo(layerGroup);
+      });
+
+      data.alerts.forEach(a => {
+        const redIcon = L.divIcon({
+          html: '<div style="background:#ef4444;width:16px;height:16px;border-radius:50%;border:3px solid #fff;"></div>',
+          iconSize: [22, 22]
+        });
+        L.marker([a.lat, a.lng], { icon: redIcon })
+          .bindPopup(`<b>${a.status}</b><br>Location: <b>KM ${a.km}</b> (±100m)<br>Nodes: ${a.nodeA} ↔ ${a.nodeB}`)
+          .addTo(layerGroup)
+          .openPopup();
+      });
+
+      document.getElementById("status").textContent =
+        `Loaded ${data.stations.length} stations & ${data.alerts.length} alerts.`;
+    }
+
+    async function simulateDrill(nodeA, timeA, nodeB, timeB) {
+      document.getElementById("status").textContent = "Sending simulated drill timestamps...";
+      const res = await fetch(SCRIPT_URL, {
+        method: "POST",
+        redirect: "follow",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({ nodeA, timeA, nodeB, timeB, status: "DRILL_DETECTED" })
+      });
+      const out = await res.json();
+      document.getElementById("status").textContent =
+        `Alert logged at KM ${out.km} — push sent to ntfy!`;
+      loadData();
+    }
+
+    loadData();
+  </script>
+</body>
+</html>
