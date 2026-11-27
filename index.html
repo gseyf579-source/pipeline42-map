@@ -28,7 +28,7 @@
     .top-bar {
       position: fixed;
       top: 12px;
-      left: 12px;
+      left: 56px;
       z-index: 1000;
       background: rgba(17, 24, 39, 0.92);
       color: #f9fafb;
@@ -76,13 +76,21 @@
       border-radius: 10px;
       box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
       font-size: 12px;
-      line-height: 1.6;
+      line-height: 1.65;
     }
 
     .legend-item {
       display: flex;
       align-items: center;
       gap: 8px;
+    }
+
+    .line-swatch {
+      width: 16px;
+      height: 4px;
+      border-radius: 2px;
+      background: #2563eb;
+      display: inline-block;
     }
 
     .dot {
@@ -118,6 +126,10 @@
 
   <div class="legend">
     <div class="legend-item">
+      <span class="line-swatch"></span>
+      <span><strong>Pipeline 42</strong> (Route Line)</span>
+    </div>
+    <div class="legend-item">
       <span class="dot dot-drill"></span>
       <span><strong>DRILL_DETECTED</strong> (Piezo Vibration)</span>
     </div>
@@ -146,7 +158,6 @@
     // Only these statuses render on the map; setting Status to RESOLVED hides the marker
     const ACTIVE_STATUSES = ['DRILL_DETECTED', 'PRESSURE_DROP', 'TEST_ALERT'];
 
-    // Default center around central Iraq / Baghdad corridor; auto-fits data when points load
     const map = L.map('map').setView([33.4922, 44.5550], 8);
 
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -154,6 +165,7 @@
       attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
 
+    const pipelineLayer = L.layerGroup().addTo(map);
     const stationsLayer = L.layerGroup().addTo(map);
     const alertsLayer = L.layerGroup().addTo(map);
     let hasFittedBounds = false;
@@ -190,23 +202,42 @@
       };
     }
 
-    async function loadStations() {
+    async function loadStationsAndLine() {
       if (!WEB_APP_URL || WEB_APP_URL === 'YOUR_APPS_SCRIPT_EXEC_URL') return [];
       const res = await fetch(`${WEB_APP_URL}?action=stations`, { cache: 'no-store' });
       const data = await res.json();
       if (!data.ok || !Array.isArray(data.stations)) return [];
 
+      pipelineLayer.clearLayers();
       stationsLayer.clearLayers();
+
+      // Sort stations by KM mark so the blue pipeline line connects in sequence
+      const validStations = data.stations
+        .map((st, idx) => ({
+          id: st.id,
+          km: Number(st.km),
+          lat: Number(st.lat),
+          lng: Number(st.lng),
+          order: idx
+        }))
+        .filter((st) =>
+          Number.isFinite(st.lat) &&
+          Number.isFinite(st.lng) &&
+          !(st.lat === 0 && st.lng === 0)
+        )
+        .sort((a, b) => {
+          if (Number.isFinite(a.km) && Number.isFinite(b.km) && a.km !== b.km) {
+            return a.km - b.km;
+          }
+          return a.order - b.order;
+        });
+
       const coords = [];
 
-      data.stations.forEach((st) => {
-        const lat = Number(st.lat);
-        const lng = Number(st.lng);
-        if (!Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0)) return;
+      validStations.forEach((st) => {
+        coords.push([st.lat, st.lng]);
 
-        coords.push([lat, lng]);
-
-        const pin = L.circleMarker([lat, lng], {
+        const pin = L.circleMarker([st.lat, st.lng], {
           radius: 6,
           color: '#115e59',
           fillColor: '#0f766e',
@@ -217,13 +248,24 @@
         pin.bindPopup(`
           <div style="font-size:13px;line-height:1.4;">
             <strong>Station: ${st.id || '-'}</strong><br/>
-            <strong>KM Mark:</strong> ${st.km ?? '-'}<br/>
-            <strong>Coords:</strong> ${lat.toFixed(6)}, ${lng.toFixed(6)}
+            <strong>KM Mark:</strong> ${Number.isFinite(st.km) ? st.km : '-'}<br/>
+            <strong>Coords:</strong> ${st.lat.toFixed(6)}, ${st.lng.toFixed(6)}
           </div>
         `);
 
         pin.addTo(stationsLayer);
       });
+
+      // Draw the blue line connecting the stations along Pipeline 42
+      if (coords.length >= 2) {
+        const line = L.polyline(coords, {
+          color: '#2563eb',
+          weight: 4,
+          opacity: 0.85
+        });
+        line.bindPopup('<strong>Pipeline 42</strong><br/>Connected station route');
+        line.addTo(pipelineLayer);
+      }
 
       return coords;
     }
@@ -302,7 +344,7 @@
     async function refreshMap() {
       try {
         const [stationCoords, alertCoords] = await Promise.all([
-          loadStations(),
+          loadStationsAndLine(),
           loadActiveAlerts()
         ]);
 
