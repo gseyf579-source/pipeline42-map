@@ -3,105 +3,324 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Pipeline 42 — Live Theft & Drill Locator</title>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <title>Pipeline 42 — Live Monitoring Map</title>
+
+  <!-- Leaflet CSS -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    crossorigin=""
+  />
+
   <style>
-    body { margin: 0; font-family: Arial, sans-serif; background: #0f172a; color: #f8fafc; }
-    header { padding: 12px 16px; background: #1e293b; display: flex; justify-content: space-between; align-items: center; }
-    header h1 { font-size: 15px; margin: 0; }
-    #map { height: 58vh; width: 100%; }
-    .panel { padding: 12px 16px; }
-    .btns { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
-    button { background: #dc2626; color: #fff; border: none; padding: 10px 14px; border-radius: 6px; font-weight: bold; cursor: pointer; }
-    button.secondary { background: #2563eb; }
-    #status { font-size: 13px; color: #93c5fd; word-break: break-word; }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body, #map {
+      width: 100%;
+      height: 100%;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    }
+
+    .top-bar {
+      position: fixed;
+      top: 12px;
+      left: 12px;
+      z-index: 1000;
+      background: rgba(17, 24, 39, 0.92);
+      color: #f9fafb;
+      padding: 10px 14px;
+      border-radius: 10px;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .top-bar strong {
+      font-size: 14px;
+      display: block;
+      margin-bottom: 2px;
+    }
+
+    .status-meta {
+      color: #d1d5db;
+      font-size: 12px;
+    }
+
+    .refresh-btn {
+      margin-top: 8px;
+      background: #2563eb;
+      color: #ffffff;
+      border: none;
+      border-radius: 6px;
+      padding: 5px 10px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .refresh-btn:hover {
+      background: #1d4ed8;
+    }
+
+    .legend {
+      position: fixed;
+      bottom: 20px;
+      left: 12px;
+      z-index: 1000;
+      background: rgba(255, 255, 255, 0.95);
+      color: #111827;
+      padding: 10px 12px;
+      border-radius: 10px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      display: inline-block;
+      border: 2px solid #111827;
+    }
+
+    .dot-drill {
+      background: #dc2626;
+      border-color: #991b1b;
+    }
+
+    .dot-pressure {
+      background: #f59e0b;
+      border-color: #b45309;
+    }
+
+    .dot-station {
+      background: #0f766e;
+      border-color: #115e59;
+    }
   </style>
 </head>
 <body>
-  <header>
-    <h1>Pipeline 42 — Acoustic Drill Locator (±100m)</h1>
-    <button class="secondary" onclick="loadData()">Refresh</button>
-  </header>
-  <div id="map"></div>
-  <div class="panel">
-    <div id="status">Loading stations & alerts...</div>
-    <div class="btns">
-      <button onclick="simulateDrill('KM_020', 1000, 'KM_040', 2500)">Test Drill @ KM 26.25</button>
-      <button onclick="simulateDrill('KM_060', 3200, 'KM_080', 1600)">Test Drill @ KM 74.00</button>
+  <div class="top-bar">
+    <strong>Pipeline 42 Security Map</strong>
+    <div id="sync-status" class="status-meta">Waiting for first sync...</div>
+    <button id="btn-refresh" class="refresh-btn" type="button">Refresh Now</button>
+  </div>
+
+  <div class="legend">
+    <div class="legend-item">
+      <span class="dot dot-drill"></span>
+      <span><strong>DRILL_DETECTED</strong> (Piezo Vibration)</span>
+    </div>
+    <div class="legend-item">
+      <span class="dot dot-pressure"></span>
+      <span><strong>PRESSURE_DROP</strong> (Valve / Pump Line)</span>
+    </div>
+    <div class="legend-item">
+      <span class="dot dot-station"></span>
+      <span><strong>Station</strong> (KM Marker)</span>
     </div>
   </div>
 
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script>
-    const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbz41bao2Euol2Ym_KPeBOrWfnFxqiS4V5nXXYC2g8yqFMVK6dCECF1ZuOdO-tOpWXGh/exec";
+  <div id="map"></div>
 
-    const map = L.map("map").setView([33.65, 44.72], 9);
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      attribution: "© OpenStreetMap"
+  <!-- Leaflet JS -->
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    crossorigin=""
+  ></script>
+
+  <script>
+    // Replace with your deployed Google Apps Script Web App /exec URL
+    const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbz41bao2Euol2Ym_KPeBOrWfnFxqiS4V5nXXYC2g8yqFMVK6dCECF1ZuOdO-tOpWXGh/exec';
+
+    // Only these statuses render on the map; setting Status to RESOLVED hides the marker
+    const ACTIVE_STATUSES = ['DRILL_DETECTED', 'PRESSURE_DROP', 'TEST_ALERT'];
+
+    // Default center around central Iraq / Baghdad corridor; auto-fits data when points load
+    const map = L.map('map').setView([33.4922, 44.5550], 8);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
 
-    const layerGroup = L.layerGroup().addTo(map);
+    const stationsLayer = L.layerGroup().addTo(map);
+    const alertsLayer = L.layerGroup().addTo(map);
+    let hasFittedBounds = false;
 
-    async function loadData() {
-      const statusEl = document.getElementById("status");
-      statusEl.textContent = "Loading stations & alerts...";
+    function getAlertStyle(status) {
+      const s = String(status || '').toUpperCase().trim();
+      if (s === 'DRILL_DETECTED') {
+        return {
+          color: '#991b1b',
+          fillColor: '#dc2626',
+          fillOpacity: 0.8,
+          radius: 10,
+          weight: 2,
+          label: 'Drilling / Vibration Alert'
+        };
+      }
+      if (s === 'PRESSURE_DROP') {
+        return {
+          color: '#b45309',
+          fillColor: '#f59e0b',
+          fillOpacity: 0.85,
+          radius: 10,
+          weight: 2,
+          label: 'Pressure Drop Alert'
+        };
+      }
+      return {
+        color: '#1d4ed8',
+        fillColor: '#2563eb',
+        fillOpacity: 0.75,
+        radius: 8,
+        weight: 2,
+        label: s || 'Active Alert'
+      };
+    }
+
+    async function loadStations() {
+      if (!WEB_APP_URL || WEB_APP_URL === 'YOUR_APPS_SCRIPT_EXEC_URL') return [];
+      const res = await fetch(`${WEB_APP_URL}?action=stations`, { cache: 'no-store' });
+      const data = await res.json();
+      if (!data.ok || !Array.isArray(data.stations)) return [];
+
+      stationsLayer.clearLayers();
+      const coords = [];
+
+      data.stations.forEach((st) => {
+        const lat = Number(st.lat);
+        const lng = Number(st.lng);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0)) return;
+
+        coords.push([lat, lng]);
+
+        const pin = L.circleMarker([lat, lng], {
+          radius: 6,
+          color: '#115e59',
+          fillColor: '#0f766e',
+          fillOpacity: 0.85,
+          weight: 2
+        });
+
+        pin.bindPopup(`
+          <div style="font-size:13px;line-height:1.4;">
+            <strong>Station: ${st.id || '-'}</strong><br/>
+            <strong>KM Mark:</strong> ${st.km ?? '-'}<br/>
+            <strong>Coords:</strong> ${lat.toFixed(6)}, ${lng.toFixed(6)}
+          </div>
+        `);
+
+        pin.addTo(stationsLayer);
+      });
+
+      return coords;
+    }
+
+    async function loadActiveAlerts() {
+      if (!WEB_APP_URL || WEB_APP_URL === 'YOUR_APPS_SCRIPT_EXEC_URL') {
+        document.getElementById('sync-status').textContent =
+          'Set WEB_APP_URL in index.html to connect';
+        return [];
+      }
+
+      const res = await fetch(`${WEB_APP_URL}?action=active_alerts`, { cache: 'no-store' });
+      const data = await res.json();
+      if (!data.ok || !Array.isArray(data.alerts)) {
+        throw new Error(data.error || 'Invalid alerts response');
+      }
+
+      alertsLayer.clearLayers();
+      const coords = [];
+      let activeCount = 0;
+
+      data.alerts.forEach((alert) => {
+        const status = String(alert.status || '').toUpperCase().trim();
+        if (!ACTIVE_STATUSES.includes(status)) return;
+
+        const lat = Number(alert.lat);
+        const lng = Number(alert.lng);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0)) return;
+
+        activeCount += 1;
+        coords.push([lat, lng]);
+
+        const style = getAlertStyle(status);
+
+        const marker = L.circleMarker([lat, lng], {
+          radius: style.radius,
+          color: style.color,
+          fillColor: style.fillColor,
+          fillOpacity: style.fillOpacity,
+          weight: style.weight
+        });
+
+        const accuracyCircle = L.circle([lat, lng], {
+          radius: 100,
+          color: style.fillColor,
+          fillColor: style.fillColor,
+          fillOpacity: 0.14,
+          weight: 1.5,
+          dashArray: '4 4'
+        });
+
+        const popupHtml = `
+          <div style="font-size:13px;line-height:1.45;">
+            <strong style="color:${style.fillColor};">${status}</strong><br/>
+            <span>${style.label}</span><br/>
+            <strong>Row in Alerts_Log:</strong> ${alert.row ?? '-'}<br/>
+            <strong>KM:</strong> ${alert.calculatedKm ?? '-'} (±100m)<br/>
+            <strong>Nodes:</strong> ${alert.nodeA || '-'} ↔ ${alert.nodeB || '-'}<br/>
+            <strong>Coords:</strong> ${lat.toFixed(6)}, ${lng.toFixed(6)}<br/>
+            <strong>Time:</strong> ${alert.timestamp || '-'}
+          </div>
+        `;
+
+        marker.bindPopup(popupHtml);
+        marker.addTo(alertsLayer);
+        accuracyCircle.addTo(alertsLayer);
+      });
+
+      const nowStr = new Date().toLocaleTimeString();
+      document.getElementById('sync-status').textContent =
+        `Active alerts: ${activeCount} • Updated ${nowStr}`;
+
+      return coords;
+    }
+
+    async function refreshMap() {
       try {
-        const res = await fetch(SCRIPT_URL + "?t=" + Date.now());
-        const data = await res.json();
-        if (!data.ok) {
-          statusEl.textContent = "Script error: " + (data.error || "Unknown error");
-          return;
+        const [stationCoords, alertCoords] = await Promise.all([
+          loadStations(),
+          loadActiveAlerts()
+        ]);
+
+        const allCoords = [...stationCoords, ...alertCoords];
+        if (!hasFittedBounds && allCoords.length > 0) {
+          map.fitBounds(allCoords, { padding: [40, 40], maxZoom: 13 });
+          hasFittedBounds = true;
         }
-
-        layerGroup.clearLayers();
-        const lineCoords = (data.stations || []).map(s => [s.lat, s.lng]);
-        if (lineCoords.length > 1) {
-          L.polyline(lineCoords, { color: "#38bdf8", weight: 4 }).addTo(layerGroup);
-        }
-
-        (data.stations || []).forEach(s => {
-          L.circleMarker([s.lat, s.lng], { radius: 6, color: "#0284c7", fillOpacity: 1 })
-            .bindPopup("<b>" + s.id + "</b><br>Marker: " + s.km + " km")
-            .addTo(layerGroup);
-        });
-
-        (data.alerts || []).forEach(a => {
-          const redIcon = L.divIcon({
-            html: '<div style="background:#ef4444;width:16px;height:16px;border-radius:50%;border:3px solid #fff;"></div>',
-            iconSize: [22, 22]
-          });
-          L.marker([a.lat, a.lng], { icon: redIcon })
-            .bindPopup("<b>" + a.status + "</b><br>Location: <b>KM " + a.km + "</b> (±100m)<br>Nodes: " + a.nodeA + " ↔ " + a.nodeB)
-            .addTo(layerGroup);
-        });
-
-        statusEl.textContent = "Loaded " + data.stations.length + " stations & " + data.alerts.length + " alerts.";
       } catch (err) {
-        statusEl.textContent = "Load failed: " + err.message;
+        document.getElementById('sync-status').textContent =
+          `Sync error: ${err.message}`;
       }
     }
 
-    async function simulateDrill(nodeA, timeA, nodeB, timeB) {
-      const statusEl = document.getElementById("status");
-      statusEl.textContent = "Sending alert...";
-      try {
-        const url = SCRIPT_URL + "?action=alert&nodeA=" + encodeURIComponent(nodeA) +
-          "&timeA=" + timeA + "&nodeB=" + encodeURIComponent(nodeB) +
-          "&timeB=" + timeB + "&status=DRILL_DETECTED&t=" + Date.now();
-        const res = await fetch(url);
-        const out = await res.json();
-        if (!out.ok) {
-          statusEl.textContent = "Alert error: " + (out.error || "Failed");
-          return;
-        }
-        statusEl.textContent = "Logged at KM " + out.km + " (" + out.lat + ", " + out.lng + ")";
-        await loadData();
-      } catch (err) {
-        statusEl.textContent = "Send failed: " + err.message;
-      }
-    }
+    document.getElementById('btn-refresh').addEventListener('click', refreshMap);
 
-    loadData();
+    refreshMap();
+    setInterval(refreshMap, 15000);
   </script>
 </body>
 </html>
