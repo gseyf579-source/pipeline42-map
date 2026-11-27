@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Pipeline 42 — Live Monitoring Map</title>
 
-  <!-- Leaflet CSS -->
   <link
     rel="stylesheet"
     href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
@@ -28,7 +27,7 @@
     .top-bar {
       position: fixed;
       top: 12px;
-      left: 56px;
+      left: 12px;
       z-index: 1000;
       background: rgba(17, 24, 39, 0.92);
       color: #f9fafb;
@@ -37,6 +36,7 @@
       box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
       font-size: 13px;
       line-height: 1.4;
+      max-width: calc(100vw - 80px);
     }
 
     .top-bar strong {
@@ -67,7 +67,7 @@
 
     .legend {
       position: fixed;
-      bottom: 20px;
+      bottom: 24px;
       left: 12px;
       z-index: 1000;
       background: rgba(255, 255, 255, 0.95);
@@ -145,7 +145,6 @@
 
   <div id="map"></div>
 
-  <!-- Leaflet JS -->
   <script
     src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
     crossorigin=""
@@ -158,7 +157,8 @@
     // Only these statuses render on the map; setting Status to RESOLVED hides the marker
     const ACTIVE_STATUSES = ['DRILL_DETECTED', 'PRESSURE_DROP', 'TEST_ALERT'];
 
-    const map = L.map('map').setView([33.4922, 44.5550], 8);
+    const map = L.map('map', { zoomControl: false }).setView([33.65, 44.72], 9);
+    L.control.zoom({ position: 'topright' }).addTo(map);
 
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
@@ -204,14 +204,13 @@
 
     async function loadStationsAndLine() {
       if (!WEB_APP_URL || WEB_APP_URL === 'YOUR_APPS_SCRIPT_EXEC_URL') return [];
-      const res = await fetch(`${WEB_APP_URL}?action=stations`, { cache: 'no-store' });
+      const res = await fetch(`${WEB_APP_URL}?action=stations&_t=${Date.now()}`, { cache: 'no-store' });
       const data = await res.json();
       if (!data.ok || !Array.isArray(data.stations)) return [];
 
       pipelineLayer.clearLayers();
       stationsLayer.clearLayers();
 
-      // Sort stations by KM mark so the blue pipeline line connects in sequence
       const validStations = data.stations
         .map((st, idx) => ({
           id: st.id,
@@ -234,6 +233,18 @@
 
       const coords = [];
 
+      // Draw blue pipeline route line first so station dots sit cleanly on top
+      if (validStations.length >= 2) {
+        const lineCoords = validStations.map((st) => [st.lat, st.lng]);
+        const line = L.polyline(lineCoords, {
+          color: '#2563eb',
+          weight: 4,
+          opacity: 0.9
+        });
+        line.bindPopup('<strong>Pipeline 42</strong><br/>KM_000 to KM_100 route');
+        line.addTo(pipelineLayer);
+      }
+
       validStations.forEach((st) => {
         coords.push([st.lat, st.lng]);
 
@@ -241,7 +252,7 @@
           radius: 6,
           color: '#115e59',
           fillColor: '#0f766e',
-          fillOpacity: 0.85,
+          fillOpacity: 0.9,
           weight: 2
         });
 
@@ -256,17 +267,6 @@
         pin.addTo(stationsLayer);
       });
 
-      // Draw the blue line connecting the stations along Pipeline 42
-      if (coords.length >= 2) {
-        const line = L.polyline(coords, {
-          color: '#2563eb',
-          weight: 4,
-          opacity: 0.85
-        });
-        line.bindPopup('<strong>Pipeline 42</strong><br/>Connected station route');
-        line.addTo(pipelineLayer);
-      }
-
       return coords;
     }
 
@@ -277,7 +277,7 @@
         return [];
       }
 
-      const res = await fetch(`${WEB_APP_URL}?action=active_alerts`, { cache: 'no-store' });
+      const res = await fetch(`${WEB_APP_URL}?action=active_alerts&_t=${Date.now()}`, { cache: 'no-store' });
       const data = await res.json();
       if (!data.ok || !Array.isArray(data.alerts)) {
         throw new Error(data.error || 'Invalid alerts response');
